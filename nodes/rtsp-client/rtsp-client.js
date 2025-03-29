@@ -24,7 +24,9 @@ module.exports = function(RED) {
             // Comando: conecta no RTSP e converte para MJPEG, enviando a saída para o pipe
             var ffmpeg = spawn('ffmpeg', [
                 '-i', rtspUrl,
+                '-rtsp_transport tcp',
                 '-f', 'mjpeg',
+                '-loglevel debug',
                 '-q:v', '5',
                 'pipe:1'
             ]);
