@@ -12,11 +12,11 @@ module.exports = function(RED) {
 
             var rtspUrl = '';
             if(node.username && node.password)
-                `rtsp://${node.username}:${node.password}@${node.address}`;
+                rtspUrl = `rtsp://${node.username}:${node.password}@${node.address}`;
             else if(node.username)
-                `rtsp://${node.username}@${node.address}`;
+                rtspUrl = `rtsp://${node.username}@${node.address}`;
             else 
-                `rtsp://${node.address}`;
+                rtspUrl = `rtsp://${node.address}`;
 
             
             // Inicia o ffmpeg para converter o stream RTSP em MJPEG
