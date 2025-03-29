@@ -3,7 +3,7 @@
 	"version": "0.1.0",
 	"description": "Nó para consumir stream RTSP e enviar vídeo para o fluxo",
 	"dependencies": {
-	  "rtsp-ffmpeg": "^2.2.0"
+	  "rtsp-ffmpeg": "^0.0.19"
 	},
 	"keywords": [
 	  "node-red", "surveillance", "rtsp", "ffmpeg", "video", "codeflow","grappe"
