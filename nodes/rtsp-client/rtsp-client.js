@@ -32,7 +32,9 @@ module.exports = function(RED) {
             // Emite os dados do stdout (fluxo do vídeo) para o próximo nó
             ffmpeg.stdout.on('data', (data) => {
                 // Cria uma mensagem com o payload como buffer de vídeo
-                node.send({ payload: data });
+                msg.payload = data;
+                // Envia a mensagem para o próximo nó
+                node.send(msg);
             });
             
             // Trata possíveis erros do ffmpeg
