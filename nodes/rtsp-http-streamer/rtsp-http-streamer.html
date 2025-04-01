@@ -1,0 +1,36 @@
+<script type="text/javascript">
+    RED.nodes.registerType('rtsp-http-streamer',{
+        category: 'Media',
+        color: '#a6bbcf',
+        defaults: {
+            name: { value:"" },
+            username: { value:"" },
+            password: { value:""},
+            address: { value:"", required:true }
+        },
+        inputs:1,
+        outputs:1,
+        icon: "camera.png",
+        label: function() {
+            return this.name || "RTSP Client";
+        }
+    });
+</script>
+<script type="text/html" data-template-name="rtsp-http-streamer">
+<div class="form-row">
+    <label for="node-input-name"><i class="icon-tag"></i> Nome</label>
+    <input type="text" id="node-input-name" placeholder="Nome do nó">
+</div>
+<div class="form-row">
+    <label for="node-input-username"><i class="icon-user"></i> Usuário</label>
+    <input type="text" id="node-input-username" placeholder="usuário">
+</div>
+<div class="form-row">
+    <label for="node-input-password"><i class="icon-key"></i> Senha</label>
+    <input type="password" id="node-input-password" placeholder="senha">
+</div>
+<div class="form-row">
+    <label for="node-input-address"><i class="icon-globe"></i> Endereço RTSP</label>
+    <input type="text" id="node-input-address" placeholder="ip:porta/caminho">
+</div>
+</script>
