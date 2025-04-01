@@ -1,36 +1,70 @@
+<script type="text/x-red" data-template-name="rtsp-http-streamer">
+    <div class="form-row">
+        <label for="node-input-name"><i class="fa fa-video-camera"></i> Nome</label>
+        <input type="text" id="node-input-name" placeholder="Nome do Stream">
+    </div>
+    <hr/>
+    <div class="form-row">
+        <label for="node-input-address"><i class="fa fa-map-marker"></i> Endereço RTSP</label>
+        <input type="text" id="node-input-address" placeholder="ip:porta/caminho">
+        <span style="font-size: 0.8em; color: #888;">Ex: 192.168.1.100:554/stream1</span>
+    </div>
+    <div class="form-row">
+        <label for="node-input-username"><i class="fa fa-user"></i> Usuário</label>
+        <input type="text" id="node-input-username" placeholder="Opcional">
+    </div>
+    <div class="form-row">
+        <label for="node-input-password"><i class="fa fa-key"></i> Senha</label>
+        <input type="password" id="node-input-password" placeholder="Opcional">
+    </div>
+    <hr/>
+    <div class="form-row">
+        <label for="node-input-ffmpegPath"><i class="fa fa-terminal"></i> Caminho FFmpeg</label>
+        <input type="text" id="node-input-ffmpegPath" placeholder="ffmpeg (ou caminho completo)">
+        <span style="font-size: 0.8em; color: #888;">Deixe em branco para usar 'ffmpeg' do PATH.</span>
+    </div>
+</script>
+
+<script type="text/x-red" data-help-name="rtsp-http-streamer">
+    <p>Inicia um stream RTSP via FFmpeg e o serve como um stream MJPEG via HTTP.</p>
+    <p>Conecte a saída de um nó <code>http in</code> (configurado com método GET) à entrada deste nó.</p>
+    <p>Este nó controlará a resposta HTTP diretamente. <strong>Não conecte</strong> um nó <code>http response</code> após este.</p>
+
+    <h3>Configuração</h3>
+    <dl class="message-properties">
+        <dt>Endereço RTSP <span class="property-type">string</span></dt>
+        <dd>O endereço completo do stream RTSP (ex: <code>192.168.1.100:554/stream1</code>).</dd>
+        <dt>Usuário <span class="property-type">string</span></dt>
+        <dd>Nome de usuário para autenticação RTSP (opcional).</dd>
+        <dt>Senha <span class="property-type">string</span></dt>
+        <dd>Senha para autenticação RTSP (opcional).</dd>
+        <dt>Caminho FFmpeg <span class="property-type">string</span></dt>
+        <dd>Caminho para o executável do FFmpeg. Se deixado em branco, assume que <code>ffmpeg</code> está no PATH do sistema.</dd>
+    </dl>
+
+    <h3>Uso</h3>
+    <p>Acesse a URL definida no nó <code>http in</code> através de um navegador web. O vídeo pode ser exibido usando uma tag <code>&lt;img&gt;</code>:</p>
+    <pre>&lt;img src="http://SEU_NODE_RED_IP:1880/camera1"&gt;</pre>
+    <p>O nó gerenciará o início e parada do processo FFmpeg conforme as conexões HTTP são estabelecidas e fechadas.</p>
+</script>
+
 <script type="text/javascript">
     RED.nodes.registerType('rtsp-http-streamer',{
-        category: 'Media',
-        color: '#a6bbcf',
+        category: 'Media', // Ou outra categoria relevante
+        color: '#1F77B4',    // Cor do nó
         defaults: {
-            name: { value:"" },
-            username: { value:"" },
-            password: { value:""},
-            address: { value:"", required:true }
+            name: {value:""},
+            address: {value:"", required:true}, // Endereço é obrigatório
+            username: {value:"", required:false},
+            password: {value:"", required:false},
+            ffmpegPath: {value:"", required:false}
         },
-        inputs:1,
-        outputs:1,
-        icon: "camera.png",
+        inputs:1,     // Aceita uma entrada (do http in)
+        outputs:0,    // Não possui saída (responde diretamente via HTTP)
+        icon: "bridge.svg", // Ícone do nó
+        paletteLabel: "RTSP HTTP Streamer", // Nome na paleta
         label: function() {
-            return this.name || "RTSP Client";
+            return this.name || `Stream ${this.address || 'RTSP'}`; // Rótulo do nó no fluxo
         }
     });
-</script>
-<script type="text/html" data-template-name="rtsp-http-streamer">
-<div class="form-row">
-    <label for="node-input-name"><i class="icon-tag"></i> Nome</label>
-    <input type="text" id="node-input-name" placeholder="Nome do nó">
-</div>
-<div class="form-row">
-    <label for="node-input-username"><i class="icon-user"></i> Usuário</label>
-    <input type="text" id="node-input-username" placeholder="usuário">
-</div>
-<div class="form-row">
-    <label for="node-input-password"><i class="icon-key"></i> Senha</label>
-    <input type="password" id="node-input-password" placeholder="senha">
-</div>
-<div class="form-row">
-    <label for="node-input-address"><i class="icon-globe"></i> Endereço RTSP</label>
-    <input type="text" id="node-input-address" placeholder="ip:porta/caminho">
-</div>
 </script>

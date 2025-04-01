@@ -16,29 +16,37 @@ module.exports = function(RED) {
         // --- Função para Parar o Stream e Limpar ---
         function stopStream(reason) {
             node.log(`Parando stream ffmpeg. Razão: ${reason}`);
-            if (node.clientResponse && !node.clientResponse.writableEnded) {
+            if (node.clientResponse && !node.clientResponse.writableEnded && typeof node.clientResponse.end === 'function') { // Check if end exists
                 try {
                     node.clientResponse.end(); // Tenta fechar a resposta HTTP
                     node.log("Resposta HTTP finalizada.");
                 } catch (e) {
                     node.warn(`Erro ao finalizar resposta HTTP: ${e.message}`);
                 }
+            } else if (node.clientResponse) {
+                 node.warn(`Não foi possível finalizar resposta HTTP (writableEnded: ${node.clientResponse.writableEnded}, end function exists: ${typeof node.clientResponse.end === 'function'})`);
             }
             node.clientResponse = null;
 
             if (node.ffmpeg_process) {
                 const pid = node.ffmpeg_process.pid;
                 node.log(`Matando processo ffmpeg (PID: ${pid})...`);
-                node.ffmpeg_process.kill('SIGTERM'); // Tenta terminar graciosamente
+                // Check if kill is available before calling
+                if (typeof node.ffmpeg_process.kill === 'function') {
+                    node.ffmpeg_process.kill('SIGTERM'); // Tenta terminar graciosamente
 
-                // Fallback com SIGKILL
-                setTimeout(() => {
-                    if (node.ffmpeg_process && !node.ffmpeg_process.killed) {
-                        node.warn(`Forçando parada do ffmpeg (PID: ${pid}) com SIGKILL.`);
-                        node.ffmpeg_process.kill('SIGKILL');
-                    }
-                    node.ffmpeg_process = null; // Garante a limpeza da referência
-                }, 1500); // Espera 1.5 segundos
+                    // Fallback com SIGKILL
+                    setTimeout(() => {
+                        if (node.ffmpeg_process && !node.ffmpeg_process.killed) {
+                            node.warn(`Forçando parada do ffmpeg (PID: ${pid}) com SIGKILL.`);
+                            node.ffmpeg_process.kill('SIGKILL');
+                        }
+                        node.ffmpeg_process = null; // Garante a limpeza da referência
+                    }, 1500); // Espera 1.5 segundos
+                } else {
+                     node.error(`Erro: processo ffmpeg (PID: ${pid}) não possui a função kill.`);
+                     node.ffmpeg_process = null;
+                }
             } else {
                  node.ffmpeg_process = null; // Garante que está nulo
             }
@@ -47,38 +55,86 @@ module.exports = function(RED) {
 
         // --- Handler de Input (Recebe de http in) ---
         node.on('input', function(msg, send, done) {
+            // <<< DEBUG: Log inicial da mensagem recebida
+            node.warn("Mensagem recebida no rtsp-http-streamer: " + JSON.stringify(msg, (key, value) => {
+                // Evita circular references e objetos muito grandes no log
+                if (key === 'req' || key === 'res') return '[Object]';
+                return value;
+            }, 2));
+
+
             if (node.ffmpeg_process) {
                 node.warn("Stream já em andamento para este nó. Ignorando nova requisição.");
-                // Poderia fechar a conexão antiga e iniciar uma nova, mas vamos manter simples
-                if (msg.res && !msg.res.writableEnded) {
+                if (msg.res && typeof msg.res.status === 'function' && !msg.res.writableEnded) { // Check function existence
                      msg.res.status(503).send("Stream já em uso por outra conexão.");
+                } else if (msg.res) {
+                    node.warn("Não foi possível enviar resposta 503 (status function missing or response ended).");
                 }
                 if (done) done();
                 return;
             }
 
-            if (!msg.req || !msg.res) {
-                node.error("Mensagem de entrada inválida. Esperado output do nó 'http in'.");
+            // <<< DEBUG: Verifica a existência e tipo de msg.res
+            if (!msg.res) {
+                 node.error("Erro Crítico: msg.res não está definido na mensagem de entrada.");
+                 if (done) done();
+                 return;
+            }
+            node.warn(`Tipo de msg.res: ${typeof msg.res}`);
+            if (typeof msg.res !== 'object' || msg.res === null) {
+                 node.error(`Erro Crítico: msg.res não é um objeto (tipo: ${typeof msg.res}).`);
+                 if (done) done();
+                 return;
+            }
+            // <<< DEBUG: Lista as chaves (propriedades/métodos) disponíveis em msg.res
+            try {
+                 node.warn(`Chaves em msg.res: ${Object.keys(msg.res).join(', ')}`);
+            } catch (e) {
+                 node.warn(`Não foi possível listar as chaves de msg.res: ${e.message}`);
+            }
+            // <<< DEBUG: Verifica especificamente a função writeHead
+            node.warn(`msg.res possui writeHead? ${typeof msg.res.writeHead === 'function'}`);
+
+
+            // A verificação principal que causa o erro original:
+             if (typeof msg.res.writeHead !== 'function') {
+                  node.error("Erro Crítico: msg.res não possui a função 'writeHead'. Verifique o nó anterior ('http in').");
+                  // Tenta enviar um erro se possível, mas pode falhar também
+                  if (typeof msg.res.status === 'function' && !msg.res.writableEnded) {
+                       msg.res.status(500).send("Erro interno do servidor: objeto de resposta inválido.");
+                  }
+                  if (done) done();
+                  return; // Impede a execução do código que causa o TypeError
+             }
+
+
+            // Guarda a resposta para uso posterior
+            node.clientResponse = msg.res;
+            const req = msg.req; // Referência à requisição (verificar se existe também)
+            if (!req) {
+                node.error("Erro: msg.req não está definido. Necessário do nó 'http in'.");
+                stopStream("msg.req ausente");
                 if (done) done();
                 return;
             }
 
-            // Guarda a resposta para uso posterior
-            node.clientResponse = msg.res;
-            const req = msg.req; // Referência à requisição
 
             const rtspUrl = buildRtspUrl(node.rtsp_address, node.rtsp_username, node.rtsp_password);
             if (!rtspUrl) {
                 node.error("Endereço RTSP inválido ou não configurado.");
                 node.status({ fill: "red", shape: "ring", text: "Erro: Config RTSP" });
-                 if (!node.clientResponse.headersSent) node.clientResponse.status(500).send("Configuração RTSP inválida no servidor.");
+                 if (node.clientResponse && !node.clientResponse.headersSent && typeof node.clientResponse.status === 'function') {
+                      node.clientResponse.status(500).send("Configuração RTSP inválida no servidor.");
+                 }
                 stopStream("Config RTSP inválida");
                 if (done) done();
                 return;
             }
 
             const displayUrl = rtspUrl.replace(/:(?:[^@/]+)@/, ':****@'); // Oculta senha para log
-            node.log(`Iniciando stream para ${req.ip} - Conectando a: ${displayUrl}`);
+            // Verifica se req.ip existe
+            const clientIp = req.ip || req.connection?.remoteAddress || 'IP desconhecido';
+            node.log(`Iniciando stream para ${clientIp} - Conectando a: ${displayUrl}`);
             node.status({ fill: "blue", shape: "dot", text: "Conectando..." });
 
             // --- Cabeçalhos HTTP para MJPEG Stream ---
@@ -89,8 +145,10 @@ module.exports = function(RED) {
                 'Pragma': 'no-cache',
                 'Expires': '0'
             };
+
+             // Linha 93 original (agora dentro de um contexto mais seguro)
              if (!node.clientResponse.headersSent) {
-                 node.clientResponse.writeHead(200, headers);
+                 node.clientResponse.writeHead(200, headers); // Chamada que causava o erro
                  node.log("Cabeçalhos HTTP MJPEG enviados.");
              } else {
                  node.warn("Cabeçalhos HTTP já enviados para esta resposta.");
@@ -116,7 +174,9 @@ module.exports = function(RED) {
             } catch (err) {
                 node.error(`Falha ao iniciar '${node.ffmpegCmd}': ${err.message}. Verifique instalação e caminho.`);
                 node.status({ fill: "red", shape: "ring", text: `Erro spawn (${err.code})` });
-                if (!node.clientResponse.headersSent) node.clientResponse.status(500).send("Erro interno ao iniciar stream de vídeo.");
+                if (node.clientResponse && !node.clientResponse.headersSent && typeof node.clientResponse.status === 'function') {
+                     node.clientResponse.status(500).send("Erro interno ao iniciar stream de vídeo.");
+                }
                 stopStream(`Falha spawn ${err.code}`);
                 if (done) done();
                 return;
@@ -126,9 +186,9 @@ module.exports = function(RED) {
 
             // Enviar dados (frames) para o cliente HTTP
             node.ffmpeg_process.stdout.on('data', (data) => {
-                if (!node.clientResponse || node.clientResponse.writableEnded) {
-                    // Cliente desconectou ou resposta já terminou
-                    if (node.ffmpeg_process) stopStream("Cliente desconectou (stdout)");
+                // Verifica se clientResponse e a função write existem e se a conexão não foi encerrada
+                if (!node.clientResponse || node.clientResponse.writableEnded || typeof node.clientResponse.write !== 'function') {
+                    if (node.ffmpeg_process) stopStream(`Cliente desconectou ou resposta inválida (stdout - writableEnded: ${node.clientResponse?.writableEnded}, write exists: ${typeof node.clientResponse?.write === 'function'})`);
                     return;
                 }
                 try {
@@ -153,7 +213,6 @@ module.exports = function(RED) {
                 const errorMsg = data.toString();
                 ffmpegErrorBuffer += errorMsg;
                 node.log(`FFmpeg stderr: ${errorMsg.substring(0,150)}${errorMsg.length > 150 ? '...' : ''}`);
-                // Poderia tentar identificar erros fatais aqui e parar
                  if (/Connection refused/i.test(ffmpegErrorBuffer)) {
                      node.error("FFmpeg: Conexão recusada.");
                      node.status({fill:"red", shape:"ring", text:"Erro: Conexão recusada"});
@@ -167,15 +226,14 @@ module.exports = function(RED) {
 
             // Limpeza quando o ffmpeg fecha
             node.ffmpeg_process.on('close', (code, signal) => {
-                node.log(`Processo ffmpeg (PID: ${node.ffmpeg_process?.pid}) encerrado. Código: ${code}, Sinal: ${signal}`);
-                 const pid = node.ffmpeg_process?.pid; // Salva antes de zerar
-                 node.ffmpeg_process = null; // Limpa referência ANTES de chamar stopStream
+                const currentPid = node.ffmpeg_process?.pid; // Salva antes de zerar
+                node.log(`Processo ffmpeg (PID: ${currentPid}) encerrado. Código: ${code}, Sinal: ${signal}`);
+                node.ffmpeg_process = null; // Limpa referência ANTES de chamar stopStream
 
                 if (code !== 0 && code !== null && signal !== 'SIGTERM') { // Ignora fechamento normal ou por SIGTERM
-                    node.error(`FFmpeg (PID: ${pid}) terminou inesperadamente (cód ${code}). Último erro: ${ffmpegErrorBuffer}`);
+                    node.error(`FFmpeg (PID: ${currentPid}) terminou inesperadamente (cód ${code}). Último erro: ${ffmpegErrorBuffer}`);
                     stopStream(`FFmpeg exit code ${code}`); // Passa motivo
                 } else {
-                    // Fechamento normal ou esperado
                      stopStream(`FFmpeg closed (code ${code}, signal ${signal})`);
                 }
                  ffmpegErrorBuffer = ''; // Limpa buffer
@@ -183,9 +241,9 @@ module.exports = function(RED) {
 
             // Erro no spawn/execução do ffmpeg
             node.ffmpeg_process.on('error', (err) => {
-                node.error(`Erro no processo ffmpeg (PID: ${node.ffmpeg_process?.pid}): ${err.message}`);
-                 const pid = node.ffmpeg_process?.pid;
-                 if (node.ffmpeg_process && !node.ffmpeg_process.killed) {
+                 const currentPid = node.ffmpeg_process?.pid;
+                 node.error(`Erro no processo ffmpeg (PID: ${currentPid}): ${err.message}`);
+                 if (node.ffmpeg_process && !node.ffmpeg_process.killed && typeof node.ffmpeg_process.kill === 'function') {
                     try { node.ffmpeg_process.kill(); } catch(e){}
                  }
                  node.ffmpeg_process = null;
@@ -194,18 +252,22 @@ module.exports = function(RED) {
             });
 
             // --- Handler para desconexão do cliente HTTP ---
-            node.clientResponse.on('close', () => {
-                node.log(`Cliente HTTP (${req.ip}) desconectou.`);
-                stopStream("Cliente desconectou");
-            });
-             node.clientResponse.on('error', (err) => {
-                 node.error(`Erro na conexão HTTP: ${err.message}`);
-                 stopStream(`Erro HTTP ${err.code}`);
-             });
+            // Verifica se clientResponse e a função 'on' existem
+            if (node.clientResponse && typeof node.clientResponse.on === 'function') {
+                node.clientResponse.on('close', () => {
+                    node.log(`Cliente HTTP (${clientIp}) desconectou.`);
+                    stopStream("Cliente desconectou");
+                });
+                 node.clientResponse.on('error', (err) => {
+                     node.error(`Erro na conexão HTTP: ${err.message}`);
+                     stopStream(`Erro HTTP ${err.code}`);
+                 });
+            } else {
+                 node.warn("Não foi possível adicionar listeners 'close' e 'error' ao clientResponse.");
+            }
 
 
             // Indica ao Node-RED que o processamento síncrono do input terminou
-            // A resposta HTTP continuará sendo enviada de forma assíncrona
             if (done) {
                 done();
             }
