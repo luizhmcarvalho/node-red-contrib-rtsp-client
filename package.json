@@ -1,7 +1,7 @@
 {
 	"name": "node-red-contrib-rtsp-client",
 	"author": "Luiz Carvalho <luiz@grappetech.com>",
-	"version": "0.1.9",
+	"version": "0.1.10",
 	"license": "MIT",
 	"description": "Nó para consumir stream RTSP e enviar vídeo para o fluxo",
 	"dependencies": {
